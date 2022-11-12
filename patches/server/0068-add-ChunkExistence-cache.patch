@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mechoriet <kevinworm92@gmail.com>
+Date: Sat, 12 Nov 2022 14:41:40 +0100
+Subject: [PATCH] add ChunkExistence cache
+
+resulting in less reoccurring opening of same files that we already can assume the result of during runtime
+
+which should speed up chunkExists call overtime
+
+diff --git a/src/main/java/net/minecraft/server/RegionFile.java b/src/main/java/net/minecraft/server/RegionFile.java
+index 6373527a96b172e8faa5e10f8bf66c97916fd747..733b422b2829ffd0637d5fade9ca370aa8a8c522 100644
+--- a/src/main/java/net/minecraft/server/RegionFile.java
++++ b/src/main/java/net/minecraft/server/RegionFile.java
+@@ -27,6 +27,21 @@ public class RegionFile {
+     private int g;
+     private long h;
+ 
++    // PandaSpigot start
++    private Boolean[] existingChunkCache = new Boolean[1024];
++    private boolean isExistingChunkCacheEntrySet(int i, int j) {
++        return this.existingChunkCache[i + j * 32] != null;
++    }
++    private boolean checkExistingChunkCache(int i, int j) {
++        return this.existingChunkCache[i + j * 32].booleanValue();
++    }
++    private void addCoordinatesToCache(int i, int j, boolean result) {
++        Boolean a = this.existingChunkCache[i + j * 32];
++        if(a == null || a.booleanValue() != result) {
++            this.existingChunkCache[i + j * 32] = new Boolean(result);
++        }
++    }
++    // PandaSpigot end
+     public RegionFile(File file) {
+         this.b = file;
+         this.g = 0;
+@@ -98,10 +113,16 @@ public class RegionFile {
+     }
+ 
+     // CraftBukkit start - This is a copy (sort of) of the method below it, make sure they stay in sync
+-    public synchronized boolean chunkExists(int i, int j) {
++    public boolean chunkExists(int i, int j) {
+         if (this.d(i, j)) {
+             return false;
+         } else {
++            // PandaSpigot start
++            if(this.isExistingChunkCacheEntrySet(i, j)) {
++                return this.checkExistingChunkCache(i, j);
++            }
++            synchronized(this) {
++            // PandaSpigot end
+             try {
+                 int k = this.e(i, j);
+ 
+@@ -123,16 +144,17 @@ public class RegionFile {
+                     }
+ 
+                     byte b0 = this.c.readByte();
+-                    if (b0 == 1 || b0 == 2) {
+-                        return true;
+-                    }
++                    // PandaSpigot start
++                    boolean foundChunk = (b0 == 1 || b0 == 2);
++                    this.addCoordinatesToCache(i, j, foundChunk);
++                    return foundChunk;
++                    // PandaSpigot end
+                 }
+             } catch (IOException ioexception) {
+                 return false;
+             }
++            }
+         }
+-
+-        return false;
+     }
+     // CraftBukkit end
+ 
+@@ -164,14 +186,17 @@ public class RegionFile {
+                             byte[] abyte;
+ 
+                             if (b0 == 1) {
++                                this.addCoordinatesToCache(i, j, true); // PandaSpigot
+                                 abyte = new byte[j1 - 1];
+                                 this.c.read(abyte);
+                                 return new DataInputStream(new BufferedInputStream(new GZIPInputStream(new ByteArrayInputStream(abyte))));
+                             } else if (b0 == 2) {
++                                this.addCoordinatesToCache(i, j, true); // PandaSpigot
+                                 abyte = new byte[j1 - 1];
+                                 this.c.read(abyte);
+                                 return new DataInputStream(new BufferedInputStream(new InflaterInputStream(new ByteArrayInputStream(abyte))));
+                             } else {
++                                this.addCoordinatesToCache(i, j, false); // PandaSpigot
+                                 return null;
+                             }
+                         }
+@@ -256,6 +281,7 @@ public class RegionFile {
+             }
+ 
+             this.b(i, j, (int) (MinecraftServer.az() / 1000L));
++            this.addCoordinatesToCache(i, j, true); // PandaSpigot
+         } catch (IOException ioexception) {
+             ioexception.printStackTrace();
+             ServerInternalException.reportInternalException(ioexception); // Paper
