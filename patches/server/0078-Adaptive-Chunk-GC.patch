@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mechoriet <kevinworm92@gmail.com>
+Date: Sun, 4 Dec 2022 15:55:06 +0100
+Subject: [PATCH] Adaptive Chunk GC
+
+
+diff --git a/src/main/java/com/hpfxd/pandaspigot/config/PandaSpigotWorldConfig.java b/src/main/java/com/hpfxd/pandaspigot/config/PandaSpigotWorldConfig.java
+index 14f65a41a7711afd45fbd09007e385dfd6291719..7d8dfe808451ff9bf96200db7f1ecef5958d7b7a 100644
+--- a/src/main/java/com/hpfxd/pandaspigot/config/PandaSpigotWorldConfig.java
++++ b/src/main/java/com/hpfxd/pandaspigot/config/PandaSpigotWorldConfig.java
+@@ -39,7 +39,12 @@ public class PandaSpigotWorldConfig {
+     @Comment("This option controls whether or not to add a bit of randomness to an arrow's trajectory.\n" +
+             "By default, this is true (vanilla behaviour)")
+     public boolean randomArrowTrajectory = true;
+-    
++
++    @Comment("Adaptive chunkGC based on \n" +
++        "viewChunks = viewdistance * 2 + 1(padding)\n" +
++        "keepSpawnInMemory(256) + playercount * ( viewChunks * viewChunks ) ")
++    public boolean adaptativeChunkGC = false;
++
+     @Comment("These options control velocity players receive when damaged.")
+     public KnockbackConfig knockback;
+     
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+index f663a6468b40e8ddd1fee3ad46381d8eede45e64..81237f328fa616432b2defd8e4f45dcb5587dd09 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+@@ -1412,7 +1412,13 @@ public class CraftWorld implements World {
+     public void processChunkGC() {
+         chunkGCTickCount++;
+ 
+-        if (chunkLoadCount >= server.chunkGCLoadThresh && server.chunkGCLoadThresh > 0) {
++        // PandaSpigot - port Adaptive chunk GC Value
++        int playerCount = getPlayers().size();
++        int viewDistance = getHandle().getServer().getViewDistance();
++        int viewChunks = ((viewDistance *2)+1);
++        int chunkGCLoadThreshold = getHandle().pandaSpigotConfig.adaptativeChunkGC ? (world.keepSpawnInMemory ? 256 : 0) + playerCount * (viewChunks * viewChunks) : server.chunkGCLoadThresh;
++
++       if (chunkLoadCount > chunkGCLoadThreshold && chunkGCLoadThreshold > 0) {
+             chunkLoadCount = 0;
+         } else if (chunkGCTickCount >= server.chunkGCPeriod && server.chunkGCPeriod > 0) {
+             chunkGCTickCount = 0;
